@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hockey Availability Dashboard</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+  padding: 20px;
+}
+.card {
+  background: #020617;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+.free { background: #064e3b; }
+.busy { background: #7f1d1d; }
+.current { border: 2px solid #22c55e; }
+input, select, button {
+  padding: 5px;
+  margin: 4px 0;
+}
+footer {
+  margin-top: 25px;
+  text-align: center;
+  color: #64748b;
+}
+</style>
+</head>
+
+<body>
+
+<h2>🏑 Hockey Availability Dashboard</h2>
+<div id="now"></div>
+
+<div class="card">
+  <h3>Player Personal Override</h3>
+
+  <select id="playerSelect"></select><br>
+
+  <select id="overrideDay">
+    <option>Monday</option><option>Tuesday</option>
+    <option>Wednesday</option><option>Thursday</option><option>Friday</option>
+  </select><br>
+
+  <input type="time" id="overrideStart">
+  <input type="time" id="overrideEnd"><br>
+
+  <select id="overrideStatus">
+    <option value="busy">Busy</option>
+    <option value="free">Free</option>
+  </select>
+
+  <button onclick="addPersonalOverride()">Add / Replace Override</button>
+</div>
+
+<div class="card">
+  <h3>Free Players Now</h3>
+  <ul id="freePlayers"></ul>
+</div>
+
+<div class="card">
+  <h3>Best Common Free Slot Today</h3>
+  <div id="bestSlot"></div>
+</div>
+
+<footer>— RSR —</footer>
+
+<script>
+const timetable = {
+  G20: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "busy" },
+      { start: "09:00", end: "09:55", status: "busy" },
+      { start: "10:00", end: "10:55", status: "busy" },
+      { start: "11:00", end: "11:55", status: "busy" },
+      { start: "12:00", end: "12:55", status: "busy" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" },
+      { start: "16:00", end: "16:55", status: "busy" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" },
+      { start: "15:00", end: "15:55", status: "busy" },
+      { start: "16:00", end: "16:55", status: "busy" },
+      { start: "17:00", end: "17:55", status: "busy" },
+      { start: "18:00", end: "18:55", status: "free" },
+      { start: "19:00", end: "19:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" },
+      { start: "16:00", end: "16:55", status: "busy" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "busy" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" },
+      { start: "16:00", end: "16:55", status: "busy" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" },
+      { start: "09:00", end: "09:55", status: "busy" },
+      { start: "10:00", end: "10:55", status: "busy" },
+      { start: "11:00", end: "11:55", status: "busy" },
+      { start: "12:00", end: "12:55", status: "busy" },
+      { start: "14:00", end: "14:55", status: "busy" },
+      { start: "15:00", end: "15:55", status: "busy" },
+      { start: "16:00", end: "16:55", status: "busy" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "busy" }
+    ]
+  }
+};
+
+
+/* ================= DATA ================= */
+
+let players = JSON.parse(localStorage.getItem("players")) || [
+  { name: "Rachit", group: "G20", active: true, overrides: [] },
+  { name: "Aman", group: "G20", active: true, overrides: [] }
+];
+
+/* ================= HELPERS ================= */
+
+function savePlayers() {
+  localStorage.setItem("players", JSON.stringify(players));
+}
+function getTimetableStatus(group, day, time) {
+  const daySlots = timetable[group]?.[day];
+  if (!daySlots) return null;
+
+  for (const slot of daySlots) {
+    if (inRange(time, slot.start, slot.end)) {
+      return slot.status;
+    }
+  }
+  return null;
+}
+
+function now() {
+  const d = new Date();
+  return {
+    day: d.toLocaleDateString("en-US", { weekday: "long" }),
+    time: d.toTimeString().slice(0,5)
+  };
+}
+
+function inRange(t, s, e) {
+  return t >= s && t <= e;
+}
+
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return !(aEnd <= bStart || aStart >= bEnd);
+}
+
+/* ================= AVAILABILITY LOGIC ================= */
+function getPlayerStatus(player, day, time) {
+
+  // 1️⃣ Personal overrides (highest priority)
+  for (let i = player.overrides.length - 1; i >= 0; i--) {
+    const o = player.overrides[i];
+    if (o.day === day && inRange(time, o.start, o.end)) {
+      return o.status;
+    }
+  }
+
+  // 2️⃣ Official timetable
+  const ttStatus = getTimetableStatus(player.group, day, time);
+  if (ttStatus) return ttStatus;
+
+  // 3️⃣ Night free rule
+  if (
+    inRange(time, "00:00", "08:00") ||
+    inRange(time, "19:00", "23:59")
+  ) return "free";
+
+  // 4️⃣ Default
+  return "busy";
+}
+
+
+/* ================= COMMON SLOT LOGIC ================= */
+
+function getDaySlots() {
+  return [
+    { start: "08:00", end: "08:55" },
+    { start: "09:00", end: "09:55" },
+    { start: "10:00", end: "10:55" },
+    { start: "11:00", end: "11:55" },
+    { start: "12:00", end: "12:55" },
+    { start: "14:00", end: "14:55" },
+    { start: "15:00", end: "15:55" },
+    { start: "16:00", end: "16:55" },
+    { start: "17:00", end: "17:55" },
+    { start: "18:00", end: "18:55" }
+  ];
+}
+function getCommonFreeSlots(day) {
+  const slots = getDaySlots();
+  const result = [];
+
+  slots.forEach(slot => {
+    const midTime = getMidTime(slot.start, slot.end);
+
+    const freePlayers = players.filter(p =>
+      p.active &&
+      getPlayerStatus(p, day, midTime) === "free"
+    );
+
+    result.push({
+      start: slot.start,
+      end: slot.end,
+      count: freePlayers.length,
+      names: freePlayers.map(p => p.name)
+    });
+  });
+
+  return result;
+}
+
+function getMidTime(start, end) {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+
+  const startMin = sh * 60 + sm;
+  const endMin = eh * 60 + em;
+  const midMin = Math.floor((startMin + endMin) / 2);
+
+  const h = String(Math.floor(midMin / 60)).padStart(2, "0");
+  const m = String(midMin % 60).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function getBestSlotToday() {
+  const { day } = now();
+  const slots = getCommonFreeSlots(day);
+
+  let best = slots[0];
+  slots.forEach(s => {
+    if (s.count > best.count) best = s;
+  });
+
+  return best;
+}
+
+/* ================= UI UPDATE ================= */
+
+function updateUI() {
+  const { day, time } = now();
+  document.getElementById("now").innerText = `${day} • ${time}`;
+
+  // Free players now
+  const ul = document.getElementById("freePlayers");
+  ul.innerHTML = "";
+
+  players.filter(p =>
+    p.active && getPlayerStatus(p, day, time) === "free"
+  ).forEach(p => {
+    const li = document.createElement("li");
+    li.innerText = p.name;
+    ul.appendChild(li);
+  });
+
+  if (!ul.innerHTML) ul.innerHTML = "<li>No one free</li>";
+
+  // Best slot
+  const best = getBestSlotToday();
+  document.getElementById("bestSlot").innerHTML = `
+    <b>${best.start} – ${best.end}</b><br>
+    Free players: ${best.count}<br>
+    ${best.names.join(", ") || "No one"}
+  `;
+}
+
+/* ================= OVERRIDE HANDLING ================= */
+
+function populatePlayers() {
+  const sel = document.getElementById("playerSelect");
+  sel.innerHTML = "";
+  players.forEach((p, i) => {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.innerText = p.name;
+    sel.appendChild(opt);
+  });
+}
+
+function addPersonalOverride() {
+  const i = document.getElementById("playerSelect").value;
+  const day = document.getElementById("overrideDay").value;
+  const start = document.getElementById("overrideStart").value;
+  const end = document.getElementById("overrideEnd").value;
+  const status = document.getElementById("overrideStatus").value;
+
+  if (!start || !end || start >= end) {
+    alert("Invalid time range");
+    return;
+  }
+
+  // Remove conflicting overrides
+  players[i].overrides = players[i].overrides.filter(o =>
+    !(o.day === day && overlaps(start, end, o.start, o.end))
+  );
+
+  // Add new override
+  players[i].overrides.push({ day, start, end, status });
+
+  savePlayers();
+  updateUI();
+}
+
+/* ================= INIT ================= */
+
+populatePlayers();
+updateUI();
+setInterval(updateUI, 60000);
+</script>
+
+</body>
+</html>
