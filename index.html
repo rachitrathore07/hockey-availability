@@ -203,7 +203,19 @@ let players = JSON.parse(localStorage.getItem("players")) || [
   { roll: "2501ce01", name: "Rachit", group: "G20", active: true, overrides: [] },
   { roll: "2501ce02", name: "Aman", group: "G20", active: true, overrides: [] }
   
-];
+]
+// 🔁 AUTO-MIGRATE OLD DATA (mobile-safe)
+players = players.map(p => {
+  if (!p.roll) {
+    return {
+      ...p,
+      roll: p.name === "Rachit" ? "2501ce01" : "2501ce02"
+    };
+  }
+  return p;
+});
+localStorage.setItem("players", JSON.stringify(players));
+;
 
 function savePlayers() {
   localStorage.setItem("players", JSON.stringify(players));
