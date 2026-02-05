@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hockey Availability Dashboard</title>
 
+<button onclick="logout()" style="
+  width:auto;
+  padding:6px 12px;
+  background:#334155;
+  color:#e5e7eb;
+  font-size:0.9rem;
+  border-radius:6px;
+  margin-bottom:10px;
+">
+  ← Back to Login
+</button>
+</title>
+
 <style>
 body {
   font-family: Arial, sans-serif;
@@ -67,6 +80,43 @@ footer {
   font-size: 0.75rem;
   margin-left: 6px;
 }
+.grid {
+  display: grid;
+  grid-template-columns: 60px repeat(5, 1fr);
+  gap: 4px;
+  font-size: 0.7rem;
+}
+
+.grid div {
+  padding: 6px 2px;
+  text-align: center;
+  border-radius: 4px;
+}
+
+.time {
+  background: #020617;
+  font-weight: bold;
+}
+
+.free {
+  background: #16a34a;
+  color: #022c22;
+}
+
+.busy {
+  background: #dc2626;
+  color: #fee2e2;
+}
+
+.now {
+  outline: 2px solid gold;
+}
+
+.day-header {
+  font-weight: bold;
+  background: #1e293b;
+}
+
 </style>
 </head>
 
@@ -110,6 +160,26 @@ footer {
   <button onclick="addPersonalOverride()">Add / Replace Override</button>
 </div>
 
+<div class="card" id="adminPanel" style="display:none;">
+  <h3>Admin Panel</h3>
+
+  <input id="newName" placeholder="Player Name">
+  <input id="newRoll" placeholder="Roll Number">
+  <input id="newGroup" placeholder="Group (e.g. G20)">
+  <button onclick="addPlayer()">Add Player</button>
+
+  <hr style="margin:10px 0">
+
+  <h4>All Players</h4>
+  <ul id="playerList"></ul>
+
+  <button style="background:#ef4444;color:white"
+    onclick="resetAllOverrides()">
+    Reset All Overrides
+  </button>
+</div>
+
+
 <div class="card">
   <h3>Free Players Now</h3>
   <ul id="freePlayers"></ul>
@@ -119,19 +189,89 @@ footer {
   <h3>Best Common Free Slot Today</h3>
   <div id="bestSlot"></div>
 </div>
+<div class="card">
+  <h3>Weekly Availability (You)</h3>
+  <div id="weeklyGrid" class="grid"></div>
+</div>
 
 </div>
 
 <footer>— RSR —</footer>
 
 <script>
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
+
+const SLOTS = [
+  "08:00","09:00","10:00","11:00","12:00",
+  "14:00","15:00","16:00","17:00","18:00"
+];
+
 /* ================= AUTH ================= */
 const ADMIN_ROLL = "2501ce01";
 let currentUserRoll = null;
 let currentPlayer = null;
+function isAdmin() {
+  return currentUserRoll === ADMIN_ROLL;
+}
+
+function renderWeeklyGrid() {
+  if (!currentPlayer) return;
+
+  const grid = document.getElementById("weeklyGrid");
+  grid.innerHTML = "";
+
+  // Header row
+  grid.appendChild(document.createElement("div"));
+  DAYS.forEach(d => {
+    const h = document.createElement("div");
+    h.innerText = d.slice(0,3);
+    h.className = "day-header";
+    grid.appendChild(h);
+  });
+
+  const nowInfo = now();
+
+  SLOTS.forEach(time => {
+    // Time label
+    const t = document.createElement("div");
+    t.innerText = time;
+    t.className = "time";
+    grid.appendChild(t);
+
+    DAYS.forEach(day => {
+      const cell = document.createElement("div");
+      const status = getPlayerStatus(currentPlayer, day, time);
+      cell.className = status;
+
+      // Highlight current time slot
+      if (day === nowInfo.day && time === nowInfo.time.slice(0,2)+":00") {
+        cell.classList.add("now");
+      }
+
+      cell.innerText = status === "free" ? "Free" : "Busy";
+      grid.appendChild(cell);
+    });
+  });
+}
+
+function logout() {
+  currentUserRoll = null;
+  currentPlayer = null;
+
+  app.classList.add("hidden");
+  loginCard.classList.remove("hidden");
+
+  rollInput.value = "";
+
+  // Hide admin UI
+  adminTag.classList.add("hidden");
+  document.getElementById("adminPanel").style.display = "none";
+}
+
 
 /* ================= TIMETABLE ================= */
 const timetable = {
+  
   G20: {
     Monday: [
       { start: "08:00", end: "08:55", status: "busy" },
@@ -194,14 +334,1451 @@ const timetable = {
       { start: "17:00", end: "17:55", status: "free" },
       { start: "18:00", end: "18:55", status: "busy" }
     ]
+  },
+ 
+  G1: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G1)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G1)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CH1201(G1-3)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G1-6)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201(G9-16) is free for G1, but ME1202(G1-6) at 12:00
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CH1201(G1-3)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G1-6)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G7-12) is free, but check main grid
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "busy" }, // CH1201(G1-6)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Slot CS1201(G1-3)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Slot CS1201(G1-3)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G1)
+      { start: "09:00", end: "09:55", status: "busy" }, // CH1201(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201(G9-16) is free, but check CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G2: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G2)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G2)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CH1201(G1-3)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G1-6)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CH1201(G1-3)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G1-6)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "busy" }, // CH1201(G1-6)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Slot CS1201(G1-3)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Slot CS1201(G1-3)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G2)
+      { start: "09:00", end: "09:55", status: "busy" }, // CH1201(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G3: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G3)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G3)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CH1201(G1-3)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G1-6)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CH1201(G1-3)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G1-6)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "busy" }, // CH1201(G1-6)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Slot CS1201(G1-3)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Slot CS1201(G1-3)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G3)
+      { start: "09:00", end: "09:55", status: "busy" }, // CH1201(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G4: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G4)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G4)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1201(G4-6)
+      { start: "16:00", end: "16:55", status: "free" }, // G4 is NOT in G1-3
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G1-6)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" }, // G4 is NOT in G1-3
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G1-6)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "busy" }, // CH1201(G1-6)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Slot CS1201(G4-6)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Slot CS1201(G4-6)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G4)
+      { start: "09:00", end: "09:55", status: "busy" }, // CH1201(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G5: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G5)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial CS1201(G5-8)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial CS1201(G5-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial CS1201(G5-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G5)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1201(G4-6)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G1-6)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G1-6)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "busy" }, // CH1201(G1-6)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Slot CS1201(G4-6)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Slot CS1201(G4-6)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G5)
+      { start: "09:00", end: "09:55", status: "busy" }, // CH1201(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G6: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G6)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G6)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1201(G4-6)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G1-6)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G1-6)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G1-6)
+      { start: "14:00", end: "14:55", status: "busy" }, // CH1201(G1-6)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab CS1201(G4-6)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab CS1201(G4-6)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G6)
+      { start: "09:00", end: "09:55", status: "busy" }, // CH1201(G1-6)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G7: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" }, 
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G7)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G7)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1201(G7-9)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G7-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201(G19-24) is free, but check ME1201(G7-9)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G7-12)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // CH1201(G7-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201(G19-24) is free, but check CH1201(G7-12)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // ME1201(G7-9) / CH1201(G7-9) Lab block
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Slot ME1201(G7-9)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Slot ME1201(G7-9)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G7)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G7-12)
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G8: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G8)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // Lab/Tut CS1201(G5-8)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G8)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1201(G7-9)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // ME1202(G7-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G7-12)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // CH1201(G7-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // CH1201(G7-12)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block ME1201(G7-9)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block ME1201(G7-9)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block ME1201(G7-9)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G8)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G1-8)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G1-8)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G1-8)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G1-8)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G7-12)
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G9: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G9-16)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // CS1201(G9-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G9)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G9)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1201(G7-9)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab Slot CS1201(G9-12) / ME1202(G7-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201(G9-16)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G7-12)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // CH1201(G7-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // CH1201(G7-12)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block ME1201(G7-9)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block ME1201(G7-9)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block ME1201(G7-9)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G9)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G9-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201(G9-16)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G7-12)
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G10: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G9-16)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // CS1201(G9-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G10)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G10)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1201(G10-12) Lab block
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1201(G10-12) Lab block
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201(G9-16)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G7-12)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // CH1201(G7-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // CH1201(G7-12)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G10)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Slot CH1201(G10-12) / MA1201(G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // Lab Slot CH1201(G10-12) / CS1201(G9-16)
+      { start: "12:00", end: "12:55", status: "busy" }, // Lab Slot CH1201(G10-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201(G9-16)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G7-12)
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G11: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G9-16)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // CS1201(G9-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G11)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G11)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block ME1201(G10-12)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block ME1201(G10-12)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201(G9-16)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G7-12)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // CH1201(G7-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // CH1201(G7-12)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G11)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Slot CH1201(G10-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // Lab Slot CH1201(G10-12)
+      { start: "12:00", end: "12:55", status: "busy" }, // Lab Slot CH1201(G10-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201(G9-16)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G7-12)
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G12: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201(G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // CS1201(G9-16)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // CS1201(G9-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G12)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial CS1201(G9-12)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202(G7-12)
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G12)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block ME1201(G10-12)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block ME1201(G10-12)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab Slot CS1201(G9-12) / ME1202(G7-12)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Slot CS1201(G9-12)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201(G9-16)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // CS1201(G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // ME1202(G7-12)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // CH1201(G7-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // CH1201(G7-12)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201(G12)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Slot CH1201(G10-12)
+      { start: "11:00", end: "11:55", status: "busy" }, // Lab Slot CH1201(G10-12)
+      { start: "12:00", end: "12:55", status: "busy" }, // Lab Slot CH1201(G10-12)
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "busy" }, // CS1201(G9-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201(G9-16)
+      { start: "17:00", end: "17:55", status: "busy" }, // CH1201(G7-12)
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G13: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (PH1201 G13)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (PH1201 G13)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CE1201 (G13-15)
+      { start: "17:00", end: "17:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G13)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G14: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (PH1201 G14)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (PH1201 G14)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CE1201 (G13-15)
+      { start: "17:00", end: "17:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G14)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G15: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (PH1201 G15)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (PH1201 G15)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // CE1201 (G13-15)
+      { start: "17:00", end: "17:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block PH1201 (G13-15)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block EE1201 (G15-16)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block EE1201 (G15-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block EE1201 (G15-16)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G15)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G16: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (PH1201 G16)
+      { start: "09:00", end: "09:55", status: "free" },
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G13-16)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (PH1201 G16)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G16-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // CE1201 (G16-18)
+      { start: "17:00", end: "17:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "14:00", end: "14:55", status: "free" }, // PH1201 (G13-15) is busy, G16 is free
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // PH1201 (G16-18) Lab Block
+      { start: "18:00", end: "18:55", status: "busy" }  // PH1201 (G16-18) Lab Block
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block EE1201 (G15-16)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block EE1201 (G15-16)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block EE1201 (G15-16)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G16)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G13-16)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G13-16)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // MA1201 (G9-16)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G17: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" }, 
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (PH1201 G17)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (PH1201 G17)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G16-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // CE1201 (G16-18)
+      { start: "17:00", end: "17:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // PH1201 (G16-18) Lab Block
+      { start: "18:00", end: "18:55", status: "busy" }  // PH1201 (G16-18) Lab Block
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab block EE1201 (G17-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab block EE1201 (G17-18) / PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab block EE1201 (G17-18)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G17)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "15:00", end: "15:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G18: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" }, 
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "15:00", end: "15:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (PH1201 G18)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (PH1201 G18)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G16-18)
+      { start: "16:00", end: "16:55", status: "busy" }, // CE1201 (G16-18)
+      { start: "17:00", end: "17:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "free" },
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // Lab block PH1201 (G16-18)
+      { start: "18:00", end: "18:55", status: "busy" }  // Lab block PH1201 (G16-18)
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab block EE1201 (G17-18)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab block EE1201 (G17-18)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab block EE1201 (G17-18)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G13-18)
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G13-18)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G18)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "15:00", end: "15:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G19: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G19)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G17-20)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G19)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G19-21)
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab Block PH1201 (G19-21)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab Block PH1201 (G19-21) / PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Block PH1201 (G19-21) / MA1201 (G17-24)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G19-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block EE1201 (G19-20)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block EE1201 (G19-20)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block EE1201 (G19-20)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G19)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G17-20)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G17-20)
+      { start: "15:00", end: "15:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G21: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G21)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G21)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G19-21)
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab Block PH1201 (G19-21)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab Block PH1201 (G19-21) / PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab Block PH1201 (G19-21) / MA1201 (G17-24)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block EE1201 (G21-22)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block EE1201 (G21-22)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block EE1201 (G21-22)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G21)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G22: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G22)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G22)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G22-24)
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab Block PH1201 (G22-24) / CE1201 (G19-24)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Block PH1201 (G22-24)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Block PH1201 (G22-24) / PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G19-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab block EE1201 (G21-22)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab block EE1201 (G21-22)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab block EE1201 (G21-22)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G22)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G23: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G23)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G23)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G22-24)
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab Block PH1201 (G22-24)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Block PH1201 (G22-24)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Block PH1201 (G22-24)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab block EE1201 (G23-24)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab block EE1201 (G23-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab block EE1201 (G23-24)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G23)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
+  },
+  G24: {
+    Monday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Tuesday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial (ME1202 G24)
+      { start: "09:00", end: "09:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "11:00", end: "11:55", status: "busy" }, // Tutorial (EE1201 G21-24)
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Tutorial (ME1202 G24)
+      { start: "15:00", end: "15:55", status: "busy" }, // CE1201 (G22-24)
+      { start: "16:00", end: "16:55", status: "busy" }, // PH1201 (G19-24)
+      { start: "17:00", end: "17:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Wednesday: [
+      { start: "08:00", end: "08:55", status: "free" },
+      { start: "09:00", end: "09:55", status: "busy" }, // PH1201 (G13-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "free" },
+      { start: "14:00", end: "14:55", status: "busy" }, // Lab Block PH1201 (G22-24)
+      { start: "15:00", end: "15:55", status: "busy" }, // Lab Block PH1201 (G22-24)
+      { start: "16:00", end: "16:55", status: "busy" }, // Lab Block PH1201 (G22-24)
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Thursday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Lab block EE1201 (G23-24)
+      { start: "09:00", end: "09:55", status: "busy" }, // Lab block EE1201 (G23-24)
+      { start: "10:00", end: "10:55", status: "busy" }, // Lab block EE1201 (G23-24)
+      { start: "11:00", end: "11:55", status: "free" },
+      { start: "12:00", end: "12:55", status: "busy" }, // ME1202 (G19-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // CE1201 (G19-24)
+      { start: "15:00", end: "15:55", status: "free" },
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "18:00", end: "18:55", status: "free" }
+    ],
+    Friday: [
+      { start: "08:00", end: "08:55", status: "busy" }, // Tutorial MA1201 (G24)
+      { start: "09:00", end: "09:55", status: "busy" }, // EE1201 (G21-24)
+      { start: "10:00", end: "10:55", status: "free" },
+      { start: "11:00", end: "11:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "12:00", end: "12:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "14:00", end: "14:55", status: "busy" }, // PH1201 (G21-24)
+      { start: "15:00", end: "15:55", status: "busy" }, // MA1201 (G17-24)
+      { start: "16:00", end: "16:55", status: "free" },
+      { start: "17:00", end: "17:55", status: "free" },
+      { start: "18:00", end: "18:55", status: "free" }
+    ]
   }
 };
+
+
+
+
+
+
+
+
+
 
 /* ================= PLAYERS ================= */
 let players = JSON.parse(localStorage.getItem("players")) || [
   
   { roll: "2501ce01", name: "Rachit", group: "G20", active: true, overrides: [] },
-  { roll: "2501ce02", name: "Aman", group: "G20", active: true, overrides: [] }
+  { roll: "2501ce02", name: "Aman", group: "G20", active: true, overrides: [] },
+   { roll: "2501ce03", name: "Atul", group: "G1", active: true, overrides: [] }
   
 ]
 // 🔁 AUTO-MIGRATE OLD DATA (mobile-safe)
@@ -239,8 +1816,12 @@ function login() {
 
   if (roll === ADMIN_ROLL) adminTag.classList.remove("hidden");
 
+
   populatePlayers();
-  updateUI();
+  updateUI();renderWeeklyGrid();
+
+  checkAdmin();
+
 }
 
 /* ================= TIME ================= */
@@ -257,11 +1838,17 @@ function overlaps(a,b,c,d){ return !(b<=c || a>=d); }
 
 /* ================= STATUS ================= */
 function getTimetableStatus(group, day, time) {
-  const slots = timetable[group]?.[day];
+  if (!timetable[group]) return null;
+
+  const slots = timetable[group][day];
   if (!slots) return null;
-  for (const s of slots) if (inRange(time,s.start,s.end)) return s.status;
+
+  for (const s of slots) {
+    if (inRange(time, s.start, s.end)) return s.status;
+  }
   return null;
 }
+
 
 function getPlayerStatus(player, day, time) {
   for (let i = player.overrides.length-1; i>=0; i--) {
@@ -288,6 +1875,11 @@ function populatePlayers() {
 }
 
 function addPersonalOverride() {
+  if (p.roll !== currentUserRoll && !isAdmin()) {
+  alert("You can only override your own availability");
+  return;
+}
+
   const i = playerSelect.value;
   const p = players[i];
   if (p.roll!==currentUserRoll && currentUserRoll!==ADMIN_ROLL) return;
@@ -329,6 +1921,8 @@ function updateUI() {
     Free players: ${best.count}<br>
     ${best.names.join(", ")||"No one"}
   `;
+  renderWeeklyGrid();
+
 }
 
 /* ================= BEST SLOT ================= */
@@ -357,9 +1951,125 @@ function getBestSlotToday(){
   });
   return best;
 }
+/* ================= ADMIN ================= */
+
+ // TEMP (we’ll link login later)
+
+/* Show admin panel if admin */
+function checkAdmin() {
+  if (currentRoll === ADMIN_ROLL) {
+    document.getElementById("adminPanel").style.display = "block";
+    renderPlayerList();
+  }
+}
+
+function addPlayer() {
+  if (!isAdmin()) {
+    alert("Unauthorized action");
+    return;
+  }
+
+  const name = newName.value.trim();
+  const roll = newRoll.value.trim();
+  const group = newGroup.value.trim();
+
+  if (!name || !roll || !group) {
+    alert("Fill all fields");
+    return;
+  }
+
+  if (players.some(p => p.roll === roll)) {
+    alert("Roll already exists");
+    return;
+  }
+
+  players.push({
+    name,
+    roll,
+    group,
+    active: true,
+    overrides: []
+  });
+
+  savePlayers();
+  renderPlayerList();
+
+  newName.value = "";
+  newRoll.value = "";
+  newGroup.value = "";
+}
+
+function renderPlayerList() {
+  const ul = document.getElementById("playerList");
+  ul.innerHTML = "";
+
+  players.forEach((p, i) => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      ${p.name} (${p.roll}) [${p.group}]
+      <button onclick="toggleActive(${i})">
+        ${p.active ? "Deactivate" : "Activate"}
+      </button>
+      <button onclick="deletePlayer(${i})">❌</button>
+    `;
+    ul.appendChild(li);
+  });
+}
+
+function toggleActive(i) {
+
+  if (!isAdmin()) {
+    alert("Unauthorized action");
+    return;
+  }
+
+  players[i].active = !players[i].active;
+  savePlayers();
+  updateUI();
+  renderPlayerList();
+}
+
+function deletePlayer(i) {
+  if (!isAdmin()) {
+    alert("Unauthorized action");
+    return;
+  }
+
+  if (!confirm("Delete this player?")) return;
+  players.splice(i, 1);
+  savePlayers();
+  updateUI();
+  renderPlayerList();
+}
+function checkAdmin() {
+  const panel = document.getElementById("adminPanel");
+
+  if (currentUserRoll === ADMIN_ROLL) {
+    panel.style.display = "block";
+    renderPlayerList();
+  } else {
+    panel.style.display = "none";
+  }
+}
+
+function resetAllOverrides() {
+  
+  if (!isAdmin()) {
+    alert("Unauthorized action");
+    return;
+  }
+
+  if (!confirm("Clear all overrides?")) return;
+  players.forEach(p => p.overrides = []);
+  savePlayers();
+  updateUI();
+}
+
 
 /* ================= INIT ================= */
 setInterval(updateUI,60000);
+
+
 </script>
 
 </body>
